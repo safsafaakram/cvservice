@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart CV Matcher | Candidate Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <section id="toastStack" class="notification-shell" aria-live="polite"></section>
+
+    <main class="shell">
+        <section class="hero">
+            <span class="eyebrow">Candidate Workspace</span>
+            <div class="header">
+                <div>
+                    <h1>Track your CV submissions and scoring progress.</h1>
+                    <p>Choose a job, upload your CV, and watch the AI scoring flow update your status as soon as the backend finishes processing.</p>
+                </div>
+                <div class="header-actions">
+                    <div id="pollStatus" class="status-badge">Polling idle</div>
+                    <button class="ghost" type="button" onclick="logout()">Log out</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="dashboard-grid">
+            <div class="stack">
+                <article class="panel">
+                    <h3>Profile</h3>
+                    <p id="profileSummary" class="subtle">Loading your auth profile...</p>
+                </article>
+
+                <article class="panel">
+                    <h3>Available jobs</h3>
+                    <p class="subtle">Select the role you want to apply for before uploading your CV.</p>
+                    <div id="jobsList" class="job-list"></div>
+                </article>
+            </div>
+
+            <div class="stack">
+                <article class="panel">
+                    <h3>Upload CV</h3>
+                    <form id="cvForm" class="grid">
+                        <div class="grid two">
+                            <label>
+                                Candidate name
+                                <input type="text" id="candidateName" placeholder="Jane Doe" required>
+                            </label>
+                            <label>
+                                Candidate email
+                                <input type="email" id="candidateEmail" placeholder="jane@example.com" required>
+                            </label>
+                        </div>
+                        <div class="grid two">
+                            <label>
+                                Job ID
+                                <input type="text" id="uploadJobId" placeholder="Select a job first" required>
+                            </label>
+                            <label>
+                                CV PDF
+                                <input type="file" id="cvFile" accept="application/pdf" required>
+                            </label>
+                        </div>
+                        <button class="primary" type="submit">Submit CV</button>
+                    </form>
+                    <div id="cvMessage" class="message info" hidden></div>
+                </article>
+
+                <article class="panel">
+                    <h3>My results</h3>
+                    <p id="rankingHint" class="subtle">Select a job to see your submission status.</p>
+                    <div id="resultsPanel"></div>
+                </article>
+
+                <article class="panel">
+                    <h3>Notifications</h3>
+                    <p class="subtle">You will see a notification here when your CV receives a score.</p>
+                    <div id="notificationList" class="notification-list">
+                        <p class="subtle">No notifications yet.</p>
+                    </div>
+                </article>
+            </div>
+        </section>
+    </main>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+    <script>
+        requireSession();
+
+        let jobs = [];
+        let activeJobId = localStorage.getItem(storageKeys.activeJobId) || "";
+        let pollHandle = null;
+        let previousScoresByCvId = {};
+        let notifications = [];
+
+        function updatePollStatus(isActive, label) {
+            const pollStatus = document.getElementById("pollStatus");
+            pollStatus.textContent = label;
+            pollStatus.style.background = isActive ? "rgba(39, 114, 74, 0.12)" : "rgba(196, 91, 49, 0.12)";
+            pollStatus.style.color = isActive ? "var(--success)" : "var(--accent-deep)";
+        }
+
+        function renderNotifications() {
+            const container = document.getElementById("notificationList");
+            if (!notifications.length) {
+                container.innerHTML = "<p class='subtle'>No notifications yet.</p>";
+                return;
+            }
+
+            container.innerHTML = notifications.map((item) => `
+                <div class="notification-card">
+                    <strong>${item.title}</strong>
+                    <p>${item.message}</p>
+                </div>
+            `).join("");
+        }
+
+        function pushToast(title, message) {
+            const stack = document.getElementById("toastStack");
+            const toast = document.createElement("article");
+            toast.className = "toast success";
+            toast.innerHTML = `<strong>${title}</strong><p>${message}</p>`;
+            stack.prepend(toast);
+            window.setTimeout(() => toast.remove(), 6000);
+        }
+
+        function renderProfile(user) {
+            document.getElementById("profileSummary").innerHTML = `
+                <strong>${user.prenom} ${user.nom}</strong><br>
+                ${user.email}<br>
+                <span class="subtle">${user.role} · Email verified: ${user.email_verified ? "yes" : "no"}</span>
+            `;
+            document.getElementById("candidateName").value = `${user.prenom} ${user.nom}`;
+            document.getElementById("candidateEmail").value = user.email;
+        }
+
+        function saveActiveJob(jobId) {
+            activeJobId = String(jobId);
+            localStorage.setItem(storageKeys.activeJobId, activeJobId);
+            document.getElementById("uploadJobId").value = activeJobId;
+            renderJobs();
+        }
+
+        function renderJobs() {
+            const container = document.getElementById("jobsList");
+            if (!jobs.length) {
+                container.innerHTML = "<p class='subtle'>No jobs available yet.</p>";
+                return;
+            }
+
+            container.innerHTML = jobs.map((job) => `
+                <div class="job-item ${String(job.id) === String(activeJobId) ? "active" : ""}">
+                    <strong>${job.title}</strong>
+                    <p class="subtle">${job.description}</p>
+                    <div class="meta">
+                        <span>ID ${job.id}</span>
+                        <span>${job.company || "No company set"}</span>
+                        <span>${job.location || "No location set"}</span>
+                    </div>
+                    <button class="ghost" type="button" onclick="selectJob('${job.id}')">Apply to this job</button>
+                </div>
+            `).join("");
+        }
+
+        function registerScoreNotifications(payload) {
+            const currentUser = getStoredUser();
+            const completedScores = [];
+
+            payload.cvs.forEach((cv) => {
+                if (currentUser && cv.email !== currentUser.email) {
+                    return;
+                }
+
+                const cvKey = String(cv.cv_id);
+                const previousScore = previousScoresByCvId[cvKey];
+                previousScoresByCvId[cvKey] = cv.score;
+
+                if (cv.score !== null && previousScore == null) {
+                    completedScores.push(cv);
+                }
+            });
+
+            completedScores.forEach((cv) => {
+                const title = `Your CV ${cv.cv_id} has been scored`;
+                const message = `For job ${payload.job.id}, your score is ${cv.score} and your current rank is #${cv.rank}.`;
+                notifications.unshift({ id: `${payload.job.id}-${cv.cv_id}-${cv.score}`, title, message });
+                notifications = notifications.slice(0, 8);
+                pushToast(title, message);
+            });
+
+            renderNotifications();
+        }
+
+        async function loadProfile() {
+            const payload = await fetchJson(`${window.APP_CONFIG.AUTH_API_BASE}/profile/`);
+            if (payload.user.role !== "CANDIDAT") {
+                redirectToDashboard(payload.user);
+                return;
+            }
+            renderProfile(payload.user);
+        }
+
+        async function loadJobs() {
+            jobs = await fetchJson(`${window.APP_CONFIG.JOB_API_BASE}/jobs/`);
+            renderJobs();
+            if (!activeJobId && jobs.length) {
+                saveActiveJob(jobs[0].id);
+                await loadRankings();
+            }
+        }
+
+        async function uploadCv(event) {
+            event.preventDefault();
+            hideMessage("cvMessage");
+
+            const selectedFile = document.getElementById("cvFile").files[0];
+            if (!selectedFile) {
+                showMessage("cvMessage", "Select a PDF before uploading.", "error");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("candidate_name", document.getElementById("candidateName").value);
+            formData.append("email", document.getElementById("candidateEmail").value);
+            formData.append("job_id", document.getElementById("uploadJobId").value);
+            formData.append("file", selectedFile);
+
+            try {
+                const token = getAccessToken();
+                const response = await fetch(`${window.APP_CONFIG.CV_API_BASE}/upload/`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                    body: formData,
+                });
+
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.detail || "CV upload failed.");
+                }
+
+                showMessage("cvMessage", `CV ${payload.cv_id} accepted for scoring.`, "success");
+                document.getElementById("cvFile").value = "";
+                startPolling();
+                await loadRankings();
+            } catch (error) {
+                showMessage("cvMessage", error.message || "CV upload failed.", "error");
+            }
+        }
+
+        async function loadRankings() {
+            if (!activeJobId) {
+                document.getElementById("resultsPanel").innerHTML = "";
+                renderNotifications();
+                return;
+            }
+
+            try {
+                const payload = await fetchJson(`${window.APP_CONFIG.CV_API_BASE}/job/${activeJobId}/`);
+                const currentUser = getStoredUser();
+                const myRows = payload.cvs.filter((cv) => !currentUser || cv.email === currentUser.email);
+
+                document.getElementById("rankingHint").innerHTML = `
+                    <strong>${payload.job.title}</strong><br>
+                    <span class="subtle">Job ${payload.job.id} · Your submissions refresh automatically while scoring is in progress.</span>
+                `;
+
+                registerScoreNotifications(payload);
+
+                if (!myRows.length) {
+                    document.getElementById("resultsPanel").innerHTML = "<p class='subtle'>You have not uploaded a CV for this job yet.</p>";
+                    return;
+                }
+
+                document.getElementById("resultsPanel").innerHTML = `
+                    <table class="results-table">
+                        <thead>
+                            <tr>
+                                <th>CV</th>
+                                <th>Status</th>
+                                <th>Score</th>
+                                <th>Rank</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${myRows.map((cv) => `
+                                <tr>
+                                    <td>${cv.candidate_name}</td>
+                                    <td>${cv.score === null ? "Processing" : "Scored"}</td>
+                                    <td>${cv.score === null ? "..." : cv.score}</td>
+                                    <td>#${cv.rank}</td>
+                                </tr>
+                            `).join("")}
+                        </tbody>
+                    </table>
+                `;
+            } catch (error) {
+                document.getElementById("resultsPanel").innerHTML = `<p class="message error">${error.message || "Failed to load rankings."}</p>`;
+            }
+        }
+
+        function startPolling() {
+            if (!activeJobId) {
+                return;
+            }
+
+            if (pollHandle) {
+                window.clearInterval(pollHandle);
+            }
+
+            updatePollStatus(true, `Polling job ${activeJobId}`);
+            pollHandle = window.setInterval(loadRankings, window.APP_CONFIG.POLL_INTERVAL_MS);
+        }
+
+        async function selectJob(jobId) {
+            saveActiveJob(jobId);
+            await loadRankings();
+            startPolling();
+        }
+
+        document.getElementById("cvForm").addEventListener("submit", uploadCv);
+
+        (async function bootstrap() {
+            try {
+                const user = getStoredUser();
+                if (user) {
+                    if (user.role !== "CANDIDAT") {
+                        redirectToDashboard(user);
+                        return;
+                    }
+                    renderProfile(user);
+                }
+
+                await loadProfile();
+                await loadJobs();
+
+                if (activeJobId) {
+                    document.getElementById("uploadJobId").value = activeJobId;
+                    startPolling();
+                    await loadRankings();
+                } else {
+                    updatePollStatus(false, "Polling idle");
+                }
+
+                renderNotifications();
+            } catch (error) {
+                clearSession();
+                window.location.href = "login.html";
+            }
+        })();
+    </script>
+</body>
+</html>

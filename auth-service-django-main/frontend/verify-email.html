@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart CV Matcher | Verify Email</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="auth-layout">
+    <main class="card auth-card">
+        <div class="hero">
+            <span class="eyebrow">Verify Email</span>
+            <h2>Enter the email address and 6-digit code you received.</h2>
+            <p>You can open this page directly at any time if you need to finish verification later.</p>
+        </div>
+
+        <form id="verifyForm" class="grid">
+            <label>
+                Email
+                <input type="email" id="email" placeholder="you@example.com" required>
+            </label>
+            <label>
+                Verification code
+                <input type="text" id="code" placeholder="123456" maxlength="6" required>
+            </label>
+            <button class="primary" type="submit">Verify email</button>
+            <button class="ghost" type="button" id="resendButton">Resend code</button>
+        </form>
+
+        <div id="verifyMessage" class="message info" hidden></div>
+        <div class="link-row">
+            <span>Already verified?</span>
+            <a href="login.html">Go to login</a>
+        </div>
+    </main>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const emailInput = document.getElementById("email");
+        const codeInput = document.getElementById("code");
+
+        if (urlParams.get("email")) {
+            emailInput.value = urlParams.get("email");
+        }
+
+        document.getElementById("verifyForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            hideMessage("verifyMessage");
+
+            const email = emailInput.value;
+            const code = codeInput.value.trim();
+            if (!code || code.length !== 6) {
+                showMessage("verifyMessage", "Enter a valid 6-digit code.", "error");
+                return;
+            }
+
+            try {
+                const payload = await fetchJson(`${window.APP_CONFIG.AUTH_API_BASE}/verify-email/`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email, code }),
+                });
+
+                clearSession();
+                persistSession(payload);
+                showMessage("verifyMessage", payload.message || "Email verified successfully.", "success");
+
+                window.setTimeout(() => {
+                    if (payload.user) {
+                        redirectToDashboard(payload.user);
+                    } else {
+                        window.location.href = "login.html";
+                    }
+                }, 900);
+            } catch (error) {
+                showMessage("verifyMessage", error.message || "Verification failed.", "error");
+            }
+        });
+
+        document.getElementById("resendButton").addEventListener("click", async () => {
+            hideMessage("verifyMessage");
+            const email = emailInput.value;
+            if (!email) {
+                showMessage("verifyMessage", "Enter your email first.", "error");
+                return;
+            }
+
+            try {
+                const payload = await fetchJson(`${window.APP_CONFIG.AUTH_API_BASE}/send-verification-code/`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email }),
+                });
+                const resendMessage = getVerificationDeliveryMessage(
+                    payload,
+                    payload.message || "Verification code sent."
+                );
+                showMessage("verifyMessage", resendMessage, "success");
+            } catch (error) {
+                showMessage("verifyMessage", error.message || "Could not resend code.", "error");
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart CV Matcher | Login</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="auth-layout">
+    <main class="card auth-card">
+        <div class="hero">
+            <span class="eyebrow">Secure Access</span>
+            <h2>Sign in as a recruiter or candidate.</h2>
+            <p>Recruiters create jobs and review rankings. Candidates upload CVs and track their own results.</p>
+        </div>
+
+        <form id="loginForm" class="grid">
+            <label>
+                Email
+                <input type="email" id="email" placeholder="you@example.com" required>
+            </label>
+            <label>
+                Password
+                <input type="password" id="password" placeholder="Your password" required>
+            </label>
+            <button class="primary" type="submit">Log in</button>
+        </form>
+
+        <div id="loginMessage" class="message info" hidden></div>
+
+        <div class="link-row">
+            <span>Need an account?</span>
+            <a href="register.html">Create one</a>
+        </div>
+        <div class="link-row">
+            <span>Need to verify your email?</span>
+            <a href="verify-email.html">Open verification page</a>
+        </div>
+    </main>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+    <script>
+        document.getElementById("loginForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            hideMessage("loginMessage");
+
+            try {
+                const payload = await fetchJson(`${window.APP_CONFIG.AUTH_API_BASE}/login/`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        email: document.getElementById("email").value,
+                        password: document.getElementById("password").value,
+                    }),
+                });
+
+                clearSession();
+                persistSession(payload);
+                showMessage("loginMessage", "Login successful. Redirecting...", "success");
+                window.setTimeout(() => {
+                    redirectToDashboard(payload.user);
+                }, 700);
+            } catch (error) {
+                if (error.status === 403 && error.payload && error.payload.requires_verification && error.payload.email) {
+                    clearSession();
+                    const verificationMessage = getVerificationDeliveryMessage(
+                        error.payload,
+                        error.message || "Verify your email before logging in."
+                    );
+                    showMessage("loginMessage", verificationMessage, "error");
+                    window.setTimeout(() => {
+                        window.location.href = `verify-email.html?email=${encodeURIComponent(error.payload.email)}`;
+                    }, 1200);
+                    return;
+                }
+
+                showMessage("loginMessage", error.message || "Login failed.", "error");
+            }
+        });
+    </script>
+</body>
+</html>

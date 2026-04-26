@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart CV Matcher | Register</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="auth-layout">
+    <main class="card auth-card">
+        <div class="hero">
+            <span class="eyebrow">Create Access</span>
+            <h2>Create a recruiter or candidate account, then verify your email before using the dashboard.</h2>
+            <p>Recruiters manage jobs and rankings. Candidates upload CVs and track their own scoring results.</p>
+        </div>
+
+        <form id="registerForm" class="grid">
+            <div class="grid two">
+                <label>
+                    First name
+                    <input type="text" id="prenom" required>
+                </label>
+                <label>
+                    Last name
+                    <input type="text" id="nom" required>
+                </label>
+            </div>
+
+            <label>
+                Email
+                <input type="email" id="email" required>
+            </label>
+
+            <div class="grid two">
+                <label>
+                    Role
+                    <select id="role">
+                        <option value="RECRUTEUR">Recruiter</option>
+                        <option value="CANDIDAT">Candidate</option>
+                    </select>
+                </label>
+                <label>
+                    Company
+                    <input type="text" id="entreprise" placeholder="Optional">
+                </label>
+            </div>
+
+            <label>
+                Phone
+                <input type="text" id="telephone" placeholder="Optional">
+            </label>
+
+            <div class="grid two">
+                <label>
+                    Password
+                    <input type="password" id="password" required>
+                </label>
+                <label>
+                    Confirm password
+                    <input type="password" id="passwordConfirm" required>
+                </label>
+            </div>
+
+            <button class="primary" type="submit">Create account</button>
+        </form>
+
+        <div id="registerMessage" class="message info" hidden></div>
+
+        <div class="link-row">
+            <span>Already registered?</span>
+            <a href="login.html">Sign in</a>
+        </div>
+    </main>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+    <script>
+        document.getElementById("registerForm").addEventListener("submit", async (event) => {
+            event.preventDefault();
+            hideMessage("registerMessage");
+
+            const password = document.getElementById("password").value;
+            const passwordConfirm = document.getElementById("passwordConfirm").value;
+            const email = document.getElementById("email").value;
+            const role = document.getElementById("role").value;
+
+            if (password !== passwordConfirm) {
+                showMessage("registerMessage", "Passwords do not match.", "error");
+                return;
+            }
+
+            try {
+                const payload = await fetchJson(`${window.APP_CONFIG.AUTH_API_BASE}/register/`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        nom: document.getElementById("nom").value,
+                        prenom: document.getElementById("prenom").value,
+                        email,
+                        role,
+                        entreprise: document.getElementById("entreprise").value,
+                        telephone: document.getElementById("telephone").value,
+                        password,
+                        password_confirm: passwordConfirm,
+                    }),
+                });
+
+                clearSession();
+                persistSession(payload);
+                const successMessage = payload.email_delivery === "console"
+                    ? getVerificationDeliveryMessage(payload, "Account created. Verify your email next.")
+                    : "Account created. Check your inbox for the verification code, then verify your email.";
+                showMessage("registerMessage", successMessage, "success");
+                window.setTimeout(() => {
+                    window.location.href = `verify-email.html?email=${encodeURIComponent(email)}&role=${encodeURIComponent(role)}`;
+                }, 700);
+            } catch (error) {
+                showMessage("registerMessage", error.message || "Registration failed.", "error");
+            }
+        });
+    </script>
+</body>
+</html>
