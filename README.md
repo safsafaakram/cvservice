@@ -1,4 +1,3 @@
-# CV Service Monorepo
 
 This repository contains the services that make up the CV platform.
 
