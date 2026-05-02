@@ -57,21 +57,21 @@ services:
       - cv_microservices
 
   cv_service:
-    build: .
+    build: ../cv_service
     container_name: cv_service
     command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
+      - ../cv_service:/app
     environment:
       DJANGO_DEBUG: "1"
       DJANGO_ALLOWED_HOSTS: "*"
       CORS_ALLOWED_ORIGINS: "http://127.0.0.1:5173,http://localhost:5173"
       JWT_SIGNING_KEY: "shared-jwt-signing-key"
       INTERNAL_API_TOKEN: "shared-internal-service-token"
-      JOB_SERVICE_URL: "http://job_service:8000"
-      JOB_SERVICE_HOST_HEADER: "localhost"
+      JOB_SERVICE_URL: "https://romantic-commitment-production.up.railway.app"
+      JOB_SERVICE_HOST_HEADER: "romantic-commitment-production.up.railway.app"
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: "5672"
       RABBITMQ_USER: guest
@@ -99,8 +99,8 @@ services:
       RABBITMQ_CV_RESULTS_QUEUE: cv_results_queue
       CV_SERVICE_URL: "http://cv_service:8000"
       CV_SERVICE_HOST_HEADER: "localhost"
-      JOB_SERVICE_URL: "http://job_service:8000"
-      JOB_SERVICE_HOST_HEADER: "localhost"
+      JOB_SERVICE_URL: "https://romantic-commitment-production.up.railway.app"
+      JOB_SERVICE_HOST_HEADER: "romantic-commitment-production.up.railway.app"
       INTERNAL_API_TOKEN: "shared-internal-service-token"
     depends_on:
       rabbitmq:
